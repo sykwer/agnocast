@@ -22,7 +22,11 @@ void* shm_ptr = nullptr;
 
 const size_t MAX_TOPIC_NAME_LEN = 255;
 const size_t MAX_TOPIC_NUM = 256;
-const size_t TOPIC_QUEUE_DEPTH = 5
+const size_t TOPIC_QUEUE_DEPTH = 5;
+
+class TopicQueueEntry;
+class TopicQueue;
+class TopicsTable;
 
 
 class TopicQueueEntry {
@@ -47,12 +51,12 @@ public:
   }
 
   uint32_t get_pid() {
-    uint32_t *ptr = reinterpret_cast<uint32_t>(data + 8);
+    uint32_t *ptr = reinterpret_cast<uint32_t*>(data + 8);
     return *ptr;
   }
 
   void set_pid(uint32_t pid) {
-    uint32_t *ptr = reinterpret_cast<uint32_t>(data + 8);
+    uint32_t *ptr = reinterpret_cast<uint32_t*>(data + 8);
     *ptr = pid;
   }
 
@@ -66,13 +70,13 @@ public:
     *ptr = msg_addr;
   }
 
-  uint32 get_rc() {
-    uint32_t *ptr = reinterpret_cast<uint32_t>(data + 20);
+  uint32_t get_rc() {
+    uint32_t *ptr = reinterpret_cast<uint32_t*>(data + 20);
     return *ptr;
   }
 
   void set_rc(uint32_t rc) {
-    uint32_t *ptr = reinterpret_cast<uint32_t>(data + 20);
+    uint32_t *ptr = reinterpret_cast<uint32_t*>(data + 20);
     *ptr = rc;
   }
 };
@@ -116,7 +120,7 @@ private:
 
 public:
   size_t size() {
-    return (tail - size + TOPIC_QUEUE_DEPTH) % TOPIC_QUEUE_DEPTH;
+    return (get_tail() - get_head() + TOPIC_QUEUE_DEPTH) % TOPIC_QUEUE_DEPTH;
   }
 
   void reset() {
@@ -165,8 +169,8 @@ public:
   }
 
   // Returns -1 when the table is full or error, otherwise returns a topic index
-  int join_topic(char *topic_name) {
-    for (int i = 0; i < MAX_TOPIC_NUM; i++) {
+  int join_topic(const char *topic_name) {
+    for (size_t i = 0; i < MAX_TOPIC_NUM; i++) {
       char* ptr = reinterpret_cast<char*>(data + i * (MAX_TOPIC_NAME_LEN + 1));
 
       if (*ptr != '\0') {
@@ -190,6 +194,9 @@ public:
     return -1;
   }
 };
+
+TopicsTable *topics_table = nullptr;
+TopicQueue *topic_queues[MAX_TOPIC_NUM];
 
 void initialize_agnocast() {
   sem_t *sem = sem_open(agnocast_sem_name, 0);
@@ -239,10 +246,23 @@ void initialize_agnocast() {
   std::cout << "shared memory fd is " << shm_fd << std::endl;
 
   // =====================================================
+  topics_table = reinterpret_cast<TopicsTable*>(shm_ptr);
+  topics_table->reset();
+  // =====================================================
+
   if (sem_post(sem) == -1) {
     perror("sem_post");
     exit(EXIT_FAILURE);
   }
+}
+
+void join_topic_agnocast(const char* topic_name) {
+  int topic_idx = topics_table->join_topic(topic_name);
+  if (topic_idx == -1) exit(EXIT_FAILURE);
+
+  TopicQueue *topic_queue = reinterpret_cast<TopicQueue*>(
+    reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueue));
+  topic_queues[topic_idx] = topic_queue;
 }
 
 class MinimalPublisher : public rclcpp::Node {
@@ -253,6 +273,7 @@ public:
 
     /* Initialize agnocast central data structure */
     initialize_agnocast();
+    join_topic_agnocast("mytopic");
     /* To here */
   }
 
