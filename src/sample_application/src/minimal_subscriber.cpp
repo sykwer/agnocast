@@ -3,6 +3,7 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "sample_interfaces/msg/dynamic_size_array.hpp"
+#include "agnocast.hpp"
 
 using std::placeholders::_1;
 
@@ -11,6 +12,15 @@ public:
   MinimalSubscriber() : Node("minimal_subscriber") {
     subscription_ = this->create_subscription<sample_interfaces::msg::DynamicSizeArray>(
       "topic", 1, std::bind(&MinimalSubscriber::topic_callback, this, _1));
+
+    /* Initialize agnocast central data structure */
+    initialize_agnocast();
+    join_topic_agnocast("mytopic");
+    /* To here */
+  }
+
+  ~MinimalSubscriber() {
+
   }
 
 private:

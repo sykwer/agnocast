@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(sample_application)
+project(agnocastlib)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -7,11 +7,6 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
-
-find_package(agnocastlib REQUIRED)
-find_package(sample_interfaces REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -24,19 +19,29 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-add_executable(talker src/minimal_publisher.cpp)
-ament_target_dependencies(talker rclcpp agnocastlib sample_interfaces)
-target_include_directories(talker PRIVATE
-  ${agnocastlib_INCLUDE_DIRS}
+add_library(agnocast SHARED src/agnocast.cpp)
+# ament_target_dependencies(agnocast rclcpp)
+
+target_include_directories(agnocast PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 
-add_executable(listener src/minimal_subscriber.cpp)
-ament_target_dependencies(listener rclcpp agnocastlib sample_interfaces)
-target_include_directories(listener PRIVATE
-  ${agnocastlib_INCLUDE_DIRS}
+install(TARGETS agnocast
+  EXPORT export_${PROJECT_NAME}
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
 )
 
-install(TARGETS talker listener
-  DESTINATION lib/${PROJECT_NAME})
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
 
+install(TARGETS agnocast DESTINATION lib/${PROJECT_NAME})
+
+ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
+ament_export_include_directories(include)
 ament_package()
