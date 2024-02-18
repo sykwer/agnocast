@@ -18,6 +18,10 @@ void initialize_agnocast();
 
 void join_topic_agnocast(const char* topic_name);
 
+void enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr);
+
+void read_msg_agnocast(const std::string &topic_name, size_t entry_idx);
+
 class TopicQueueEntry {
 private:
   /*
@@ -66,9 +70,10 @@ private:
 
   void set_tail(uint32_t tail);
 
+public:
+
   TopicQueueEntry* get_entry(size_t idx);
 
-public:
   size_t size();
 
   void reset();

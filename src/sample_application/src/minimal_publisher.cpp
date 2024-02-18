@@ -37,6 +37,9 @@ private:
     message.id = count_++;
     message.data.resize(MESSAGE_SIZE);
     RCLCPP_INFO(this->get_logger(), "Publishing Message ID: '%ld'", message.id);
+
+    enqueue_msg_agnocast("mytopic", count_, getpid(), 0xdeadbeef);
+
     publisher_->publish(std::move(message));
   }
 

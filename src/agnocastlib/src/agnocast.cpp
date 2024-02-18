@@ -1,3 +1,5 @@
+#include <map>
+
 #include "agnocast.hpp"
 
 const char *agnocast_shm_name = "/agnocast_shm";
@@ -7,6 +9,7 @@ void* shm_ptr = nullptr;
 
 TopicsTable *topics_table = nullptr;
 TopicQueue *topic_queues[MAX_TOPIC_NUM];
+std::map<std::string, size_t> topic_name_to_idx;
 
 void initialize_agnocast() {
   sem_t *sem = sem_open(agnocast_sem_name, 0);
@@ -81,6 +84,18 @@ void join_topic_agnocast(const char* topic_name) {
   }
 
   int topic_idx = topics_table->join_topic(topic_name);
+  topic_name_to_idx[std::string(topic_name)] = topic_idx;
+
+  sem_t *topic_sem = sem_open(topic_name, 0);
+  if (topic_sem == SEM_FAILED) {
+    std::cout << "create topic semaphore: " << topic_name << std::endl;
+
+    topic_sem = sem_open(topic_name, O_CREAT, 0666, 1);
+    if (topic_sem == SEM_FAILED) {
+      perror("sem_open");
+      exit(EXIT_FAILURE);
+    }
+  }
 
   if (sem_post(sem) == -1) {
     perror("sem_post");
@@ -92,6 +107,24 @@ void join_topic_agnocast(const char* topic_name) {
   TopicQueue *topic_queue = reinterpret_cast<TopicQueue*>(
     reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueue));
   topic_queues[topic_idx] = topic_queue;
+}
+
+void enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr) {
+	size_t topic_idx = topic_name_to_idx[topic_name];
+	bool success = topic_queues[topic_idx]->enqueue_entry(timestamp, pid, msg_addr);
+
+	if (!success) {
+		std::cerr << "failed to publish message to " << topic_name << std::endl;
+	}
+}
+
+void read_msg_agnocast(const std::string &topic_name, size_t entry_idx) {
+	size_t topic_idx = topic_name_to_idx[topic_name];
+	TopicQueue *queue = reinterpret_cast<TopicQueue*>(reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueue));
+	TopicQueueEntry* entry = queue->get_entry(entry_idx);
+
+	std::cout << "read_msg_agnocast() : timestamp=" << entry->get_timestamp() << ", pid=" << entry->get_pid()
+	  << ", msg_addr=" << entry->get_msg_addr() << ", rc=" << entry->get_rc() << std::endl;
 }
 
 void TopicsTable::reset() {

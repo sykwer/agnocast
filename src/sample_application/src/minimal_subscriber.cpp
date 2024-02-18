@@ -24,11 +24,15 @@ public:
   }
 
 private:
-  void topic_callback(const sample_interfaces::msg::DynamicSizeArray::SharedPtr msg) const {
+  void topic_callback(const sample_interfaces::msg::DynamicSizeArray::SharedPtr msg) {
     RCLCPP_INFO(this->get_logger(), "I heard message ID: '%ld'", msg->id);
+
+    read_msg_agnocast("mytopic", count);
+    count++;
   }
 
   rclcpp::Subscription<sample_interfaces::msg::DynamicSizeArray>::SharedPtr subscription_;
+  size_t count = 0;
 };
 
 int main(int argc, char * argv[])
