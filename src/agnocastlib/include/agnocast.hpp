@@ -18,17 +18,21 @@
 #define MAX_TOPIC_NAME_LEN 255
 #define MAX_TOPIC_NUM 256
 #define MAX_SUBSCRIBER_NUM 16
+#define MAX_PUBLISHER_NUM 16
+#define TOPIC_QUEUE_DEPTH_MAX 20
 #define TOPIC_QUEUE_DEPTH 5
 
-class TopicQueueEntry {
-private:
+class TopicQueues;
+
+class TopicPublisherQueueEntry {
   /*
   - timestamp (64bit, 8byte)
   - pid (32bit, 4byte)
   - msg_addr (64bit, 8byte)
   - rc (32bit, 4byte)
+  - unreceived_sub_num (32bit, 4byte)
   */
-  char data[24];
+  char data[28];
 
 public:
   uint64_t get_timestamp();
@@ -46,21 +50,32 @@ public:
   uint32_t get_rc();
 
   void set_rc(uint32_t rc);
+
+  uint32_t get_unreceived_sub_num();
+
+  void set_unreceived_sub_num(uint32_t unreceived_sub_num);
 };
 
 
-class TopicQueue {
-private:
+class TopicPublisherQueue {
   // [head, tail)
 
+  // TODO: Add `full` field
+
   /*
+  - publisher_pid (32bit, 4byte)
   - head (32bit, 4byte)
   - tail (32bit, 4byte)
-  - entries (sizeof(TopicQueueEntry) * TOPIC_QUEUE_DEPTH)
-  - subscriber_num (32bit, 4byte)
-  - pids (4byte * MAX_SUBSCRIBER_NUM)
+  - parent_ptr (64bit, 8byte)
+  - entries (sizeof(TopicPublisherQueueEntry) * TOPIC_QUEUE_DEPTH_MAX)
   */
-  char data[8 + sizeof(TopicQueueEntry) * TOPIC_QUEUE_DEPTH + 4 + 4 * MAX_SUBSCRIBER_NUM];
+  char data[20 + sizeof(TopicPublisherQueueEntry) * TOPIC_QUEUE_DEPTH_MAX];
+
+public:
+
+  uint32_t get_publisher_pid();
+
+  void set_publisher_pid(uint32_t pid);
 
   uint32_t get_head();
 
@@ -70,30 +85,59 @@ private:
 
   void set_tail(uint32_t tail);
 
-  uint32_t get_subscriber_num();
+  TopicQueues* get_parent_ptr();
 
-  void increment_subscriber_num();
+  void set_parent_ptr(TopicQueues *parent_ptr);
 
-public:
+  TopicPublisherQueueEntry* get_entry(size_t idx);
 
-  TopicQueueEntry* get_entry(size_t idx);
+  std::vector<uint32_t> get_subscriber_pids();
 
-  size_t size();
+  bool add_subscriber_pid(uint32_t pid);
 
   void reset();
+
+  size_t size();
 
   int enqueue_entry(uint64_t timestamp, uint32_t pid, uint64_t msg_addr);
 
   bool delete_head_entry();
+};
+
+
+class TopicQueues {
+  /*
+  - publisher_num (32bit, 4byte)
+  - queues (sizeof(TopicPublisherQueue) * MAX_PUBLISHER_NUM)
+  - subscriber_num (32bit, 4byte)
+  - subscriber_pids (4byte * MAX_SUBSCRIBER_NUM)
+  */
+  char data[4 + sizeof(TopicPublisherQueue) * MAX_PUBLISHER_NUM + 4 + 4 * MAX_SUBSCRIBER_NUM];
+
+public:
+
+  uint32_t get_publisher_num();
+
+  uint32_t get_subscriber_num();
+
+  void increment_publisher_num();
+
+  void increment_subscriber_num();
+
+  void reset();
+
+  // Returns publisher index
+  int add_publisher_pid(uint32_t pid);
 
   bool add_subscriber_pid(uint32_t pid);
 
   std::vector<uint32_t> get_subscriber_pids();
+
+  TopicPublisherQueue* create_or_find_publisher_queue(uint32_t pid);
 };
 
 
 class TopicsTable {
-private:
   /*
   - entries (MAX_TOPIC_NUM)
     - topic_name (MAX_TOPIC_NAME_LEN byte)
@@ -116,14 +160,17 @@ extern const char *agnocast_sem_name;
 extern void* shm_ptr;
 
 extern TopicsTable *topics_table;
-extern TopicQueue *topic_queues[MAX_TOPIC_NUM];
-extern std::map<std::string, size_t> topic_name_to_idx;
+extern TopicPublisherQueue *topic_publisher_queues[MAX_TOPIC_NUM];
+extern std::map<std::string, uint32_t> topic_name_to_idx;
+extern std::map<uint32_t, std::string> topic_idx_to_name;
 
 void initialize_agnocast();
 
 void join_topic_agnocast(const char* topic_name);
 
-void enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr);
+int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr);
+
+void publish_msg_agnocast(uint32_t topic_idx, uint32_t entry_idx);
 
 uint64_t read_msg_agnocast(const std::string &topic_name, size_t entry_idx);
 
@@ -143,9 +190,8 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> cal
     exit(EXIT_FAILURE);
   }
 
-  // add_subscriber_pid()
-  size_t topic_idx = topic_name_to_idx[topic_name];
-  TopicQueue* topic_queue = topic_queues[topic_idx];
+  uint32_t topic_idx = topic_name_to_idx[topic_name];
+  TopicPublisherQueue* topic_queue = topic_publisher_queues[topic_idx];
   topic_queue->add_subscriber_pid(getpid());
 
   // Create POSIX message queue
@@ -206,3 +252,4 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> cal
 
   threads.push_back(std::move(th));
 }
+
