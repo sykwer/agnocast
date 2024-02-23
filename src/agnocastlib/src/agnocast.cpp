@@ -83,7 +83,8 @@ void initialize_agnocast() {
   }
 }
 
-void join_topic_agnocast(const char* topic_name) {
+// Returns publisher index
+uint32_t join_topic_agnocast(const char* topic_name) {
   sem_t *sem = sem_open(agnocast_sem_name, 0);
   if (sem == SEM_FAILED) {
     perror("sem_open");
@@ -119,11 +120,18 @@ void join_topic_agnocast(const char* topic_name) {
 
   TopicQueues *queues = reinterpret_cast<TopicQueues*>(
     reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueues));
-  TopicPublisherQueue *queue = queues->create_or_find_publisher_queue(getpid());
+  // TopicPublisherQueue *queue = queues->create_or_find_publisher_queue(getpid());
+  uint32_t publisher_idx = queues->create_or_find_publisher_queue(getpid());
+
+  TopicPublisherQueue *queue = reinterpret_cast<TopicPublisherQueue*>(
+    reinterpret_cast<char*>(queues) + 4 + publisher_idx * sizeof(TopicPublisherQueue));
   topic_publisher_queues[topic_idx] = queue;
+
+  return publisher_idx;
 }
 
 int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr) {
+  std::cout << "enqueue_msg_agnocast(" << topic_name << ", " << timestamp << ", " << pid << ", " << msg_addr << ");" << std::endl;
 	uint32_t topic_idx = topic_name_to_idx[topic_name];
 
   sem_t *topic_sem = sem_open(topic_name.c_str(), 0);
@@ -152,7 +160,8 @@ int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint
   return entry_idx;
 }
 
-void publish_msg_agnocast(uint32_t topic_idx, uint32_t entry_idx) {
+void publish_msg_agnocast(uint32_t topic_idx, uint32_t publisher_idx, uint32_t entry_idx) {
+  std::cout << "publish_msg_agnocast(" << topic_idx << ", " << publisher_idx << ", " << entry_idx << ");" << std::endl;
   std::string topic_name = topic_idx_to_name[topic_idx];
 
   sem_t *topic_sem = sem_open(topic_name.c_str(), 0);
@@ -183,7 +192,11 @@ void publish_msg_agnocast(uint32_t topic_idx, uint32_t entry_idx) {
       continue;
     }
 
-    if (mq_send(mq, reinterpret_cast<char*>(&entry_idx), sizeof(entry_idx), 0) == -1) {
+    ShmMsgAgnocast msg;
+    msg.publisher_idx = publisher_idx;
+    msg.entry_idx = entry_idx;
+
+    if (mq_send(mq, reinterpret_cast<char*>(&msg), sizeof(msg), 0) == -1) {
       perror("mq_send");
       std::cerr << "mq_send error" << std::endl;
       continue;
@@ -191,9 +204,12 @@ void publish_msg_agnocast(uint32_t topic_idx, uint32_t entry_idx) {
   }
 }
 
-uint64_t read_msg_agnocast(const std::string &topic_name, size_t entry_idx) {
+uint64_t read_msg_agnocast(const std::string &topic_name, uint32_t publisher_idx, uint32_t entry_idx) {
 	uint32_t topic_idx = topic_name_to_idx[topic_name];
-  TopicPublisherQueue* queue = topic_publisher_queues[topic_idx];
+
+  TopicPublisherQueue* queue = reinterpret_cast<TopicPublisherQueue*>(
+    reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueues)
+    + 4 + publisher_idx * sizeof(TopicPublisherQueue));
 
   sem_t *topic_sem = sem_open(topic_name.c_str(), 0);
   if (topic_sem == SEM_FAILED) {
@@ -276,9 +292,9 @@ void TopicQueues::reset() {
   memset(data, 0, 4 + sizeof(TopicPublisherQueue) * MAX_PUBLISHER_NUM + 4 + 4 * MAX_SUBSCRIBER_NUM);
 }
 
-int TopicQueues::add_publisher_pid(uint32_t pid) {
+TopicPublisherQueue* TopicQueues::add_publisher_pid(uint32_t pid) {
   uint32_t n = get_publisher_num();
-  if (n == MAX_PUBLISHER_NUM) return -1;
+  if (n == MAX_PUBLISHER_NUM) return nullptr;
 
   TopicPublisherQueue *queue = reinterpret_cast<TopicPublisherQueue*>(
     data + 4 + sizeof(TopicPublisherQueue) * n);
@@ -289,7 +305,7 @@ int TopicQueues::add_publisher_pid(uint32_t pid) {
   queue->set_publisher_pid(pid);
   queue->set_parent_ptr(this);
 
-  return n;
+  return queue;
 }
 
 bool TopicQueues::add_subscriber_pid(uint32_t pid) {
@@ -320,25 +336,27 @@ std::vector<uint32_t> TopicQueues::get_subscriber_pids() {
 }
 
 
-TopicPublisherQueue* TopicQueues::create_or_find_publisher_queue(uint32_t pid) {
-  for (uint32_t i = 0; i < get_publisher_num(); i++) {
+// Returns publisher index
+uint32_t TopicQueues::create_or_find_publisher_queue(uint32_t pid) {
+  size_t n = get_publisher_num();
+
+  for (uint32_t i = 0; i < n; i++) {
     TopicPublisherQueue* queue = reinterpret_cast<TopicPublisherQueue*>(
       data + 4 + sizeof(TopicPublisherQueue) * i);
     if (queue->get_publisher_pid() == pid) {
-      return queue;
+      return i;
     }
   }
 
-  if (get_publisher_num() == MAX_PUBLISHER_NUM) {
+  if (n == MAX_PUBLISHER_NUM) {
     std::cerr << "TopicQueues::create_or_find_publisher_queue error: too many publisher" << std::endl;
-    return nullptr;
+    return -1;
   }
 
-  TopicPublisherQueue* queue = reinterpret_cast<TopicPublisherQueue*>(
-    data + 4 + sizeof(TopicPublisherQueue) * get_publisher_num());
-  increment_publisher_num();
+  // Create publisher queue
+  add_publisher_pid(pid);
 
-  return queue;
+  return n;
 }
 
 uint32_t TopicPublisherQueue::get_publisher_pid() {
@@ -372,13 +390,13 @@ void TopicPublisherQueue::set_tail(uint32_t tail) {
 }
 
 TopicQueues* TopicPublisherQueue::get_parent_ptr() {
-  uint64_t address = *reinterpret_cast<uint64_t*>(data + 12);
-  return reinterpret_cast<TopicQueues*>(address);
+  TopicQueues** ptr = reinterpret_cast<TopicQueues**>(data + 12);
+  return *ptr;
 }
 
 void TopicPublisherQueue::set_parent_ptr(TopicQueues *parent_ptr) {
-  uint64_t *ptr = reinterpret_cast<uint64_t*>(data + 12);
-  *reinterpret_cast<TopicQueues**>(ptr) = parent_ptr;
+  TopicQueues** ptr = reinterpret_cast<TopicQueues**>(data + 12);
+  *ptr = parent_ptr;
 }
 
 TopicPublisherQueueEntry* TopicPublisherQueue::get_entry(size_t idx) {

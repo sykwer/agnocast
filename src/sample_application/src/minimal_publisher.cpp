@@ -23,7 +23,7 @@ public:
 
     /* Initialize agnocast central data structure */
     initialize_agnocast();
-    join_topic_agnocast("/mytopic");
+    mytopic_publisher_idx_ = join_topic_agnocast("/mytopic");
     /* To here */
   }
 
@@ -40,7 +40,14 @@ private:
     RCLCPP_INFO(this->get_logger(), "Publishing Message ID: '%ld'", message.id);
     */
 
-    enqueue_msg_agnocast("/mytopic", count_++, getpid(), 0xdeadbeef);
+    std::string topic_name = "/mytopic";
+
+    int entry_idx = enqueue_msg_agnocast(topic_name.c_str(), count_++, getpid(), 0xdeadbeef);
+    if (entry_idx < 0) {
+      return;
+    }
+
+    publish_msg_agnocast(get_topic_idx_tmp(topic_name), mytopic_publisher_idx_, entry_idx);
 
     // publisher_->publish(std::move(message));
   }
@@ -48,6 +55,7 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
   // rclcpp::Publisher<sample_interfaces::msg::DynamicSizeArray>::SharedPtr publisher_;
   size_t count_;
+  uint32_t mytopic_publisher_idx_;
 };
 
 int main(int argc, char * argv[]) {

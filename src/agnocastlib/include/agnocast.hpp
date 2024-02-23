@@ -126,14 +126,14 @@ public:
 
   void reset();
 
-  // Returns publisher index
-  int add_publisher_pid(uint32_t pid);
+  TopicPublisherQueue* add_publisher_pid(uint32_t pid);
 
   bool add_subscriber_pid(uint32_t pid);
 
   std::vector<uint32_t> get_subscriber_pids();
 
-  TopicPublisherQueue* create_or_find_publisher_queue(uint32_t pid);
+  // Returns publisher index
+  uint32_t create_or_find_publisher_queue(uint32_t pid);
 };
 
 
@@ -151,6 +151,11 @@ public:
   int join_topic(const char *topic_name);
 };
 
+struct ShmMsgAgnocast {
+  uint32_t publisher_idx;
+  uint32_t entry_idx;
+};
+
 extern std::atomic<bool> is_running;
 extern std::vector<std::thread> threads;
 
@@ -166,15 +171,20 @@ extern std::map<uint32_t, std::string> topic_idx_to_name;
 
 void initialize_agnocast();
 
-void join_topic_agnocast(const char* topic_name);
+// Returns publisher index
+uint32_t join_topic_agnocast(const char* topic_name);
 
 int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr);
 
-void publish_msg_agnocast(uint32_t topic_idx, uint32_t entry_idx);
+void publish_msg_agnocast(uint32_t topic_idx, uint32_t publisher_idx, uint32_t entry_idx);
 
-uint64_t read_msg_agnocast(const std::string &topic_name, size_t entry_idx);
+uint64_t read_msg_agnocast(const std::string &topic_name, uint32_t publisher_idx, uint32_t entry_idx);
 
 void shutdown_agnocast();
+
+uint32_t get_topic_idx_tmp(const std::string &topic_name) {
+  return topic_name_to_idx[topic_name];
+}
 
 template<typename T>
 void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> callback) {
@@ -191,8 +201,9 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> cal
   }
 
   uint32_t topic_idx = topic_name_to_idx[topic_name];
-  TopicPublisherQueue* topic_queue = topic_publisher_queues[topic_idx];
-  topic_queue->add_subscriber_pid(getpid());
+  TopicQueues *queues = reinterpret_cast<TopicQueues*>(
+    reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueues));
+  queues->add_subscriber_pid(getpid());
 
   // Create POSIX message queue
   std::string mq_name = std::string(topic_name) + "|" + std::to_string(getpid());
@@ -204,7 +215,7 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> cal
     struct mq_attr attr;
     attr.mq_flags = 0; // Blocking queue
     attr.mq_maxmsg = 10; // Maximum number of messages in the queue
-    attr.mq_msgsize = sizeof(uint32_t); // Maximum message size
+    attr.mq_msgsize = sizeof(ShmMsgAgnocast); // Maximum message size
     attr.mq_curmsgs = 0; // Number of messages currently in the queue (not set by mq_open)
 
     mq = mq_open(mq_name.c_str(), O_CREAT | O_RDONLY, 0666, &attr);
@@ -222,29 +233,18 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> cal
 
   // Create a thread that handles the messages to execute the callback
   auto th = std::thread([=]() {
-    uint32_t entry_idx;
+    std::cout << "callback thread for " << topic_name << " has been started" << std::endl;
+    ShmMsgAgnocast msg;
 
     while (is_running) {
-      auto ret = mq_receive(mq, reinterpret_cast<char*>(&entry_idx), sizeof(entry_idx), NULL);
+      auto ret = mq_receive(mq, reinterpret_cast<char*>(&msg), sizeof(msg), NULL);
       if (ret == -1) {
         std::cerr << "mq_receive error" << std::endl;
         perror("mq_receive error");
         return;
       }
 
-      if (sem_wait(topic_sem) == -1) {
-        std::cerr << "sem_wait error" << std::endl;
-        perror("sem_wait error");
-        return;
-      }
-
-      uint64_t msg_addr = read_msg_agnocast(topic_name, entry_idx);
-
-      if (sem_post(topic_sem) == -1) {
-        std::cerr << "sem_post error" << std::endl;
-        perror("sem_post error");
-        return;
-      }
+      uint64_t msg_addr = read_msg_agnocast(topic_name, msg.publisher_idx, msg.entry_idx);
 
       callback(msg_addr);
     }
