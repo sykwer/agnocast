@@ -220,7 +220,7 @@ int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint
 
       delete msg_ptr;
 
-      std::cout << "Release ring buffer entry: topic_name=" << 
+      std::cout << "Release ring buffer entry: topic_name=" << topic_name <<
         ", size(" << curr_size << "->" << queue->size() << "), head_idx=" << head_idx << std::endl;
     } else {
       std::cout << "Tried to release ring buffer entry but skipped: " << topic_name << ", topic_idx=" << topic_idx << ", pid=" << pid <<
@@ -252,7 +252,7 @@ template<typename T> class message_ptr;
 template<typename T>
 void subscribe_topic_agnocast(const char* topic_name, std::function<void(const agnocast::message_ptr<T> &)> callback) {
   join_topic_agnocast("/mytopic");
-  
+
   // Get topic's lock
   sem_t *topic_sem = sem_open(topic_name, 0);
   if (topic_sem == SEM_FAILED) {

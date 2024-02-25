@@ -19,6 +19,9 @@ class MinimalPublisher : public rclcpp::Node {
   void timer_callback() {
     std::cout << std::endl;
     agnocast::message_ptr<sample_interfaces::msg::DynamicSizeArray> message = publisher_->borrow_loaded_message();
+
+    message->data.resize(1024 * 1024);
+
     publisher_->publish(std::move(message));
   }
 
