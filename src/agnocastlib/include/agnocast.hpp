@@ -12,6 +12,7 @@
 #include <cstring>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -174,8 +175,6 @@ void initialize_agnocast();
 // Returns publisher index
 uint32_t join_topic_agnocast(const char* topic_name);
 
-int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr);
-
 void publish_msg_agnocast(uint32_t topic_idx, uint32_t publisher_idx, uint32_t entry_idx);
 
 uint64_t read_msg_agnocast(const std::string &topic_name, uint32_t publisher_idx, uint32_t entry_idx);
@@ -186,8 +185,74 @@ uint32_t get_topic_idx_tmp(const std::string &topic_name) {
   return topic_name_to_idx[topic_name];
 }
 
+template <typename MessageT>
+int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr) {
+  std::cout << "enqueue_msg_agnocast(" << topic_name << ", " << timestamp << ", " << pid << ", " << msg_addr << ");" << std::endl;
+  uint32_t topic_idx = topic_name_to_idx[topic_name];
+
+  sem_t *topic_sem = sem_open(topic_name.c_str(), 0);
+  if (topic_sem == SEM_FAILED) {
+    perror("sem_open");
+    exit(EXIT_FAILURE);
+  }
+
+  if (sem_wait(topic_sem) == -1) {
+    perror("sem_wait");
+    exit(EXIT_FAILURE);
+  }
+
+  // Release ring buffer entry before enqueue
+  TopicPublisherQueue* queue = topic_publisher_queues[topic_idx];
+  size_t curr_size = queue->size();
+
+  if (curr_size >= TOPIC_QUEUE_DEPTH) {
+    uint32_t head_idx = queue->get_head();
+    TopicPublisherQueueEntry *head_entry = queue->get_entry(head_idx);
+    MessageT* msg_ptr = reinterpret_cast<MessageT*>(head_entry->get_msg_addr());
+
+    if (head_entry->get_rc() == 0 && head_entry->get_unreceived_sub_num() == 0) {
+      bool success = queue->delete_head_entry();
+
+      if (!success) {
+        std::cerr << "delete_head_entry() failed" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+
+      delete msg_ptr;
+
+      std::cout << "Release ring buffer entry: topic_name=" << 
+        ", size(" << curr_size << "->" << queue->size() << "), head_idx=" << head_idx << std::endl;
+    } else {
+      std::cout << "Tried to release ring buffer entry but skipped: " << topic_name << ", topic_idx=" << topic_idx << ", pid=" << pid <<
+        "curr_size=" << curr_size << ", TOPIC_QUEUE_DEPTH=" << TOPIC_QUEUE_DEPTH << ", TOPIC_QUEUE_DEPTH_MAX=" << TOPIC_QUEUE_DEPTH_MAX <<
+        ", head_entry->get_rc()=" << head_entry->get_rc() << ", head_entry->get_unreceived_sub_num()=" << head_entry->get_unreceived_sub_num() << std::endl;
+    }
+  }
+  // To here
+
+  int entry_idx = topic_publisher_queues[topic_idx]->enqueue_entry(timestamp, pid, msg_addr);
+
+  if (sem_post(topic_sem) == -1) {
+    perror("sem_post");
+    exit(EXIT_FAILURE);
+  }
+
+  if (entry_idx < 0) {
+    std::cerr << "failed to publish message to " << topic_name << std::endl;
+    return -1;
+  }
+
+  return entry_idx;
+}
+
+namespace agnocast {
+template<typename T> class message_ptr;
+}
+
 template<typename T>
-void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> callback) {
+void subscribe_topic_agnocast(const char* topic_name, std::function<void(const agnocast::message_ptr<T> &)> callback) {
+  join_topic_agnocast("/mytopic");
+  
   // Get topic's lock
   sem_t *topic_sem = sem_open(topic_name, 0);
   if (topic_sem == SEM_FAILED) {
@@ -238,18 +303,211 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(T)> cal
 
     while (is_running) {
       auto ret = mq_receive(mq, reinterpret_cast<char*>(&msg), sizeof(msg), NULL);
+
       if (ret == -1) {
         std::cerr << "mq_receive error" << std::endl;
         perror("mq_receive error");
         return;
       }
 
-      uint64_t msg_addr = read_msg_agnocast(topic_name, msg.publisher_idx, msg.entry_idx);
+      T* ptr = reinterpret_cast<T*>(read_msg_agnocast(topic_name, msg.publisher_idx, msg.entry_idx));
+      agnocast::message_ptr<T> agnocast_ptr = agnocast::message_ptr<T>(ptr, topic_idx, msg.publisher_idx, msg.entry_idx);
 
-      callback(msg_addr);
+      // Decrement unreceived_sub_num
+      if (sem_wait(topic_sem) == -1) {
+        perror("sem_wait");
+        exit(EXIT_FAILURE);
+      }
+
+      TopicQueues *queues = reinterpret_cast<TopicQueues*>(
+        reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueues));
+      TopicPublisherQueue *queue = reinterpret_cast<TopicPublisherQueue*>(
+        reinterpret_cast<char*>(queues) + 4 + msg.publisher_idx * sizeof(TopicPublisherQueue));
+      TopicPublisherQueueEntry* entry = queue->get_entry(msg.entry_idx);
+      entry->set_unreceived_sub_num(entry->get_unreceived_sub_num() - 1);
+
+      if (sem_post(topic_sem) == -1) {
+        perror("sem_post");
+        exit(EXIT_FAILURE);
+      }
+      // To here
+
+      callback(agnocast_ptr);
     }
   });
 
   threads.push_back(std::move(th));
 }
 
+
+namespace agnocast {
+
+template<typename MessageT> class Publisher;
+template<typename T> class message_ptr;
+
+template<typename MessageT>
+std::shared_ptr<Publisher<MessageT>> create_publisher(std::string topic_name) {
+  return std::make_shared<Publisher<MessageT>>(topic_name);
+}
+
+
+template<typename MessageT>
+class Publisher {
+  std::string topic_name_;
+  uint32_t topic_idx_;
+  uint32_t publisher_idx_;
+
+public:
+
+  Publisher(std::string topic_name) {
+    topic_name_ = topic_name;
+    publisher_idx_ = join_topic_agnocast(topic_name.c_str());
+    topic_idx_ = topic_name_to_idx[topic_name];
+  }
+
+  message_ptr<MessageT> borrow_loaded_message() {
+    MessageT* ptr = new MessageT();
+    int entry_idx = enqueue_msg_agnocast<MessageT>(topic_name_, 0 /*timestamp*/, getpid(), reinterpret_cast<uint64_t>(ptr));
+
+    if (entry_idx < 0) {
+      std::cerr << "failed to borrow message" << std::endl;
+      exit(EXIT_FAILURE);
+    }
+
+    return message_ptr<MessageT>(ptr, topic_idx_, publisher_idx_, entry_idx);
+  }
+
+  void publish(message_ptr<MessageT>&& message) {
+    publish_msg_agnocast(topic_idx_, publisher_idx_, message.get_entry_idx());
+  }
+};
+
+
+template<typename T>
+class message_ptr {
+  T *ptr_ = nullptr;
+  uint32_t topic_idx_;
+  uint32_t publisher_idx_;
+  uint32_t entry_idx_;
+
+  TopicPublisherQueue* get_topic_publisher_queue() {
+    TopicQueues *queues = reinterpret_cast<TopicQueues*>(
+      reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx_ * sizeof(TopicQueues));
+
+    TopicPublisherQueue *queue = reinterpret_cast<TopicPublisherQueue*>(
+      reinterpret_cast<char*>(queues) + 4 + publisher_idx_ * sizeof(TopicPublisherQueue));
+
+    return queue;
+  }
+
+  TopicPublisherQueueEntry* get_queue_entry() {
+    return get_topic_publisher_queue()->get_entry(entry_idx_);
+  }
+
+  void release() {
+    if (ptr_ == nullptr) return;
+
+    TopicPublisherQueueEntry *entry = get_queue_entry();
+
+    sem_t *topic_sem = sem_open(topic_idx_to_name[topic_idx_].c_str(), 0);
+    if (topic_sem == SEM_FAILED) {
+      perror("sem_open");
+      exit(EXIT_FAILURE);
+    }
+
+    if (sem_wait(topic_sem) == -1) {
+      perror("sem_wait");
+      exit(EXIT_FAILURE);
+    }
+
+    entry->set_rc(entry->get_rc() - 1);
+
+    if (sem_post(topic_sem) == -1) {
+      perror("sem_post");
+      exit(EXIT_FAILURE);
+    }
+
+    ptr_ = nullptr;
+  }
+
+  void increment_rc() {
+    TopicPublisherQueueEntry *entry = get_queue_entry();
+
+    sem_t *topic_sem = sem_open(topic_idx_to_name[topic_idx_].c_str(), 0);
+    if (topic_sem == SEM_FAILED) {
+      perror("sem_open");
+      exit(EXIT_FAILURE);
+    }
+
+    if (sem_wait(topic_sem) == -1) {
+      perror("sem_wait");
+      exit(EXIT_FAILURE);
+    }
+
+    entry->set_rc(entry->get_rc() + 1);
+
+    if (sem_post(topic_sem) == -1) {
+      perror("sem_post");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+public:
+
+  message_ptr() { }
+
+  explicit message_ptr(T *ptr, uint32_t topic_idx, uint32_t publisher_idx, uint32_t entry_idx) :
+      ptr_(ptr), topic_idx_(topic_idx), publisher_idx_(publisher_idx), entry_idx_(entry_idx) {
+    increment_rc();
+  }
+
+  ~message_ptr() {
+    release();
+  }
+
+  message_ptr(const message_ptr &r) :
+      ptr_(r.ptr_), topic_idx_(r.topic_idx_), publisher_idx_(r.publisher_idx_), entry_idx_(r.entry_idx_) {
+    increment_rc();
+  }
+
+  message_ptr& operator =(const message_ptr &r) {
+    if (this == &r) return *this;
+
+    release();
+
+    ptr_ = r.ptr_;
+    topic_idx_ = r.topic_idx_;
+    publisher_idx_ = r.publisher_idx_;
+    entry_idx_ = r.entry_idx_;
+
+    increment_rc();
+  }
+
+  message_ptr(message_ptr &&r) :
+      ptr_(r.ptr_), topic_idx_(r.topic_idx_), publisher_idx_(r.publisher_idx_), entry_idx_(r.entry_idx_) {
+    r.ptr_ = nullptr;
+  }
+
+  message_ptr& operator =(message_ptr &&r) {
+    release();
+    
+    ptr_ = r.ptr_;
+    topic_idx_ = r.topic_idx_;
+    publisher_idx_ = r.publisher_idx_;
+    entry_idx_ = r.entry_idx_;
+
+    r.ptr_ = nullptr;
+  }
+
+  T& operator *() const noexcept { return *ptr_; }
+
+  T* operator ->() const noexcept { return ptr_; }
+
+  T* get() const noexcept { return ptr_; }
+
+  uint32_t get_entry_idx() {
+    return entry_idx_;
+  }
+};
+
+}

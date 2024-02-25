@@ -120,7 +120,6 @@ uint32_t join_topic_agnocast(const char* topic_name) {
 
   TopicQueues *queues = reinterpret_cast<TopicQueues*>(
     reinterpret_cast<char*>(shm_ptr) + sizeof(TopicsTable) + topic_idx * sizeof(TopicQueues));
-  // TopicPublisherQueue *queue = queues->create_or_find_publisher_queue(getpid());
   uint32_t publisher_idx = queues->create_or_find_publisher_queue(getpid());
 
   TopicPublisherQueue *queue = reinterpret_cast<TopicPublisherQueue*>(
@@ -128,36 +127,6 @@ uint32_t join_topic_agnocast(const char* topic_name) {
   topic_publisher_queues[topic_idx] = queue;
 
   return publisher_idx;
-}
-
-int enqueue_msg_agnocast(const std::string &topic_name, uint64_t timestamp, uint32_t pid, uint64_t msg_addr) {
-  std::cout << "enqueue_msg_agnocast(" << topic_name << ", " << timestamp << ", " << pid << ", " << msg_addr << ");" << std::endl;
-	uint32_t topic_idx = topic_name_to_idx[topic_name];
-
-  sem_t *topic_sem = sem_open(topic_name.c_str(), 0);
-  if (topic_sem == SEM_FAILED) {
-    perror("sem_open");
-    exit(EXIT_FAILURE);
-  }
-
-  if (sem_wait(topic_sem) == -1) {
-    perror("sem_wait");
-    exit(EXIT_FAILURE);
-  }
-
-	int entry_idx = topic_publisher_queues[topic_idx]->enqueue_entry(timestamp, pid, msg_addr);
-
-  if (sem_post(topic_sem) == -1) {
-    perror("sem_post");
-    exit(EXIT_FAILURE);
-  }
-
-  if (entry_idx < 0) {
-    std::cerr << "failed to publish message to " << topic_name << std::endl;
-    return -1;
-  }
-
-  return entry_idx;
 }
 
 void publish_msg_agnocast(uint32_t topic_idx, uint32_t publisher_idx, uint32_t entry_idx) {
@@ -175,7 +144,10 @@ void publish_msg_agnocast(uint32_t topic_idx, uint32_t publisher_idx, uint32_t e
     exit(EXIT_FAILURE);
   }
 
-  auto pids = topic_publisher_queues[topic_idx]->get_subscriber_pids();
+  TopicPublisherQueue* queue = topic_publisher_queues[topic_idx];
+  auto pids = queue->get_subscriber_pids();
+  TopicPublisherQueueEntry* entry = queue->get_entry(entry_idx);
+  entry->set_unreceived_sub_num(pids.size());
 
   if (sem_post(topic_sem) == -1) {
     perror("sem_post");
@@ -485,6 +457,9 @@ uint32_t TopicPublisherQueueEntry::get_rc() {
 }
 
 void TopicPublisherQueueEntry::set_rc(uint32_t rc) {
+  std::cout << "TopicPublisherQueueEntry::set_rc(" <<
+    rc << "): publisher's pid is " << get_pid() << std::endl;
+
   uint32_t *ptr = reinterpret_cast<uint32_t*>(data + 20);
   *ptr = rc;
 }
@@ -495,6 +470,9 @@ uint32_t TopicPublisherQueueEntry::get_unreceived_sub_num() {
 }
 
 void TopicPublisherQueueEntry::set_unreceived_sub_num(uint32_t unreceived_sub_num) {
+  std::cout << "TopicPublisherQueueEntry::set_unreceived_sub_num(" <<
+    unreceived_sub_num << "): publisher's pid is " << get_pid() << std::endl;
+
   uint32_t *ptr = reinterpret_cast<uint32_t*>(data + 24);
   *ptr = unreceived_sub_num;
 }

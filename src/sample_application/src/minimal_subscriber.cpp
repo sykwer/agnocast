@@ -9,41 +9,28 @@
 using std::placeholders::_1;
 
 class MinimalSubscriber : public rclcpp::Node {
+  void topic_callback(const agnocast::message_ptr<sample_interfaces::msg::DynamicSizeArray> &agnocast_ptr) {
+    RCLCPP_INFO(this->get_logger(), "I heard message addr: %ld", reinterpret_cast<uint64_t>(agnocast_ptr.get()));
+  }
+
 public:
+
   MinimalSubscriber() : Node("minimal_subscriber") {
-    /*
-    subscription_ = this->create_subscription<sample_interfaces::msg::DynamicSizeArray>(
-      "topic", 1, std::bind(&MinimalSubscriber::topic_callback, this, _1));
-    */
-
-    /* Initialize agnocast central data structure */
-    initialize_agnocast();
-    join_topic_agnocast("/mytopic");
-    subscribe_topic_agnocast<uint64_t>("/mytopic", std::bind(&MinimalSubscriber::topic_callback, this, _1));
-    /* To here */
+    subscribe_topic_agnocast<sample_interfaces::msg::DynamicSizeArray>(
+      "/mytopic", std::bind(&MinimalSubscriber::topic_callback, this, _1));
   }
 
-  ~MinimalSubscriber() {
-    shutdown_agnocast();
-  }
-
-private:
-  /*
-  void topic_callback(const sample_interfaces::msg::DynamicSizeArray::SharedPtr msg) {
-    RCLCPP_INFO(this->get_logger(), "I heard message ID: '%ld'", msg->id);
-  }
-  */
-  void topic_callback(uint64_t msg_addr) {
-    RCLCPP_INFO(this->get_logger(), "I heard message addr: %ld", msg_addr);
-  }
-
-  //rclcpp::Subscription<sample_interfaces::msg::DynamicSizeArray>::SharedPtr subscription_;
+  ~MinimalSubscriber() {}
 };
 
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
+  initialize_agnocast();
+
   rclcpp::spin(std::make_shared<MinimalSubscriber>());
+
+  shutdown_agnocast();
   rclcpp::shutdown();
   return 0;
 }
