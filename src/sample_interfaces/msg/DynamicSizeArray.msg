@@ -1,2 +1,2 @@
 int64 id
-uint8[] data
+int64[] data

@@ -9,8 +9,13 @@
 using std::placeholders::_1;
 
 class MinimalSubscriber : public rclcpp::Node {
-  void topic_callback(const agnocast::message_ptr<sample_interfaces::msg::DynamicSizeArray> &agnocast_ptr) {
-    RCLCPP_INFO(this->get_logger(), "I heard message addr: %ld", reinterpret_cast<uint64_t>(agnocast_ptr.get()));
+  void topic_callback(const agnocast::message_ptr<sample_interfaces::msg::DynamicSizeArray> &message) {
+    RCLCPP_INFO(this->get_logger(), "I heard message addr: %016lx", reinterpret_cast<uint64_t>(message.get()));
+
+    for (size_t i = 0; i < message->data.size(); i++) {
+      std::cout << message->data[i] << " ";
+    }
+    std::cout << std::endl;
   }
 
 public:
