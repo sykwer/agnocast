@@ -9,7 +9,7 @@ std::vector<std::thread> threads;
 
 uint64_t agnocast_get_timestamp() {
   auto now = std::chrono::system_clock::now();
-  return std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
 }
 
 void shutdown_agnocast() {

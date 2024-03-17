@@ -176,6 +176,11 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(const a
 
       T* ptr = reinterpret_cast<T*>(entry_args.ret); 
       agnocast::message_ptr<T> agnocast_ptr = agnocast::message_ptr<T>(ptr, topic_name, mq_msg.publisher_pid, mq_msg.timestamp, true);
+
+      if (subscriber_pid == mq_msg.publisher_pid) {
+        return;
+      }
+
       callback(agnocast_ptr);
     }
   });
@@ -225,8 +230,11 @@ public:
   }
 
   message_ptr<MessageT> borrow_loaded_message() {
-    MessageT* ptr = new MessageT();
+    MessageT *ptr = new MessageT();
+    return borrow_loaded_message(ptr);
+  }
 
+  message_ptr<MessageT> borrow_loaded_message(MessageT *ptr) {
     union ioctl_release_oldest_args release_args;
     release_args.topic_name = topic_name_;
     release_args.publisher_pid = publisher_pid_;

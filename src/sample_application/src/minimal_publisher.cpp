@@ -19,6 +19,7 @@ class MinimalPublisher : public rclcpp::Node {
   void timer_callback() {
     agnocast::message_ptr<sample_interfaces::msg::DynamicSizeArray> message = publisher_->borrow_loaded_message();
 
+    message->id = count_;
     for (size_t i = 0; i < 10; i++) {
       message->data.push_back(i + count_);
     }
@@ -31,7 +32,7 @@ class MinimalPublisher : public rclcpp::Node {
 
   rclcpp::TimerBase::SharedPtr timer_;
   std::shared_ptr<agnocast::Publisher<sample_interfaces::msg::DynamicSizeArray>> publisher_;
-  uint8_t count_;
+  int count_;
 
 public:
 

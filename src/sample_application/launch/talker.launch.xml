@@ -7,5 +7,8 @@
 
         <env name="READ_ONLY_AREA0_START" value="0x40400000000" />
         <env name="READ_ONLY_AREA0_NAME" value="listener0_memory" />
+
+        <env name="READ_ONLY_AREA1_START" value="0x40800000000" />
+        <env name="READ_ONLY_AREA1_NAME" value="broker_memory" />
     </node>
 </launch>
