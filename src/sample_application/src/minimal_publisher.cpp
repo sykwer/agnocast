@@ -17,13 +17,14 @@ const long long MESSAGE_SIZE = 2ll * 1024;
 
 class MinimalPublisher : public rclcpp::Node {
   void timer_callback() {
-    std::cout << std::endl;
     agnocast::message_ptr<sample_interfaces::msg::DynamicSizeArray> message = publisher_->borrow_loaded_message();
 
     for (size_t i = 0; i < 10; i++) {
       message->data.push_back(i + count_);
     }
     count_++;
+
+    std::cout << "publish message: " << count_ << std::endl;
 
     publisher_->publish(std::move(message));
   }
