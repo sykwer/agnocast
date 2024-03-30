@@ -177,9 +177,11 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(const a
       T* ptr = reinterpret_cast<T*>(entry_args.ret); 
       agnocast::message_ptr<T> agnocast_ptr = agnocast::message_ptr<T>(ptr, topic_name, mq_msg.publisher_pid, mq_msg.timestamp, true);
 
+      /*
       if (subscriber_pid == mq_msg.publisher_pid) {
         return;
       }
+      */
 
       callback(agnocast_ptr);
     }
@@ -342,7 +344,7 @@ class message_ptr {
 
 public:
   const char* get_topic_name() { return topic_name_; }
-  uint32_t get_publisher_pid() { return publisher_pid_; }
+  uint32_t get_publisher_pid() const { return publisher_pid_; }
   uint64_t get_timestamp() { return timestamp_; }
 
   message_ptr() { }
