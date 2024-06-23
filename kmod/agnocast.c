@@ -93,6 +93,7 @@ static struct topic_wrapper *find_topic(const char *topic_name) {
 	return NULL;
 }
 
+// TODO: free all memory
 static void remove_topic(struct topic_wrapper *wrapper) {
 	hash_del(&wrapper->node);
 }
@@ -741,6 +742,7 @@ static long agnocast_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		if (copy_to_user((union ioctl_publish_args __user *)arg, &publish_args, sizeof(publish_args))) return -EFAULT;
 		break;
 	default:
+		mutex_unlock(&global_mutex);
 		return -EINVAL;
 	}
 
