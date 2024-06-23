@@ -431,7 +431,7 @@ static void remove_publisher_queue(const char *topic_name, uint32_t publisher_pi
 }
 
 // =========================================
-// "/sys/module/agnocast/sample/*"
+// "/sys/module/agnocast/status/*"
 
 static int value;
 
@@ -521,7 +521,7 @@ static ssize_t show_all(struct kobject *kobj, struct kobj_attribute *attr, char 
 	return scnprintf(buf, PAGE_SIZE, "%s\n", local_buf);
 }
 
-static struct kobject *sample_kobj;
+static struct kobject *status_kobj;
 static struct kobj_attribute name_attribute = __ATTR(name, 0444, show_name, NULL);
 static struct kobj_attribute value_attribute = __ATTR(value, 0644, show_value, store_value);
 static struct kobj_attribute all_attribute = __ATTR(all, 0444, show_all, NULL);
@@ -771,15 +771,15 @@ static int agnocast_init(void) {
 
 	mutex_init(&global_mutex);
 
-	sample_kobj = kobject_create_and_add("sample", &THIS_MODULE->mkobj.kobj);
-	if (!sample_kobj) {
+	status_kobj = kobject_create_and_add("status", &THIS_MODULE->mkobj.kobj);
+	if (!status_kobj) {
 		return -ENOMEM;
 	}
 
-	int ret = sysfs_create_group(sample_kobj, &attribute_group);
+	int ret = sysfs_create_group(status_kobj, &attribute_group);
 	if (ret) {
 		// Decrement reference count
-		kobject_put(sample_kobj);
+		kobject_put(status_kobj);
 	}
 
 	major = register_chrdev(0, "agnocast" /*device driver name*/, &fops);
@@ -822,7 +822,7 @@ static void agnocast_exit(void) {
 	free_all_topics();
 
 	// Decrement reference count
-	kobject_put(sample_kobj);
+	kobject_put(status_kobj);
 
     device_destroy(agnocast_class, MKDEV(major, 0));
     class_destroy(agnocast_class);
