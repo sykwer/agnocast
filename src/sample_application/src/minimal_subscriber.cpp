@@ -20,6 +20,8 @@ class MinimalSubscriber : public rclcpp::Node {
   std::vector<uint64_t> timestamp_ids_;
   int timestamp_idx_ = 0;
 
+  std::shared_ptr<agnocast::Subscription<sample_interfaces::msg::DynamicSizeArray>> sub_;
+
   void topic_callback(const agnocast::message_ptr<sample_interfaces::msg::DynamicSizeArray> &message) {
     timestamp_ids_[timestamp_idx_] = message->id;
     timestamps_[timestamp_idx_++] = agnocast_get_timestamp();
@@ -37,7 +39,7 @@ class MinimalSubscriber : public rclcpp::Node {
 public:
 
   MinimalSubscriber() : Node("minimal_subscriber") {
-    subscribe_topic_agnocast<sample_interfaces::msg::DynamicSizeArray>(
+    sub_ = agnocast::create_subscription<sample_interfaces::msg::DynamicSizeArray>(
       "/mytopic", std::bind(&MinimalSubscriber::topic_callback, this, _1));
 
     timestamps_.resize(10000, 0);

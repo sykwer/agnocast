@@ -108,7 +108,7 @@ template<typename T> class message_ptr;
 }
 
 template<typename T>
-void subscribe_topic_agnocast(const char* topic_name, std::function<void(const agnocast::message_ptr<T> &)> callback) {
+static void subscribe_topic_agnocast(const char* topic_name, std::function<void(const agnocast::message_ptr<T> &)> callback) {
   if (ioctl(agnocast_fd, AGNOCAST_TOPIC_ADD_CMD, topic_name) < 0) {
       perror("Failed to execute ioctl");
       close(agnocast_fd);
@@ -194,6 +194,7 @@ void subscribe_topic_agnocast(const char* topic_name, std::function<void(const a
 namespace agnocast {
 
 template<typename MessageT> class Publisher;
+template<typename MessageT> class Subscription;
 template<typename T> class message_ptr;
 
 template<typename MessageT>
@@ -201,6 +202,13 @@ std::shared_ptr<Publisher<MessageT>> create_publisher(std::string topic_name) {
   return std::make_shared<Publisher<MessageT>>(topic_name);
 }
 
+template<typename MessageT>
+std::shared_ptr<Subscription<MessageT>> create_subscription(const char* topic_name, std::function<void(const agnocast::message_ptr<MessageT> &)> callback) {
+  subscribe_topic_agnocast(topic_name, callback);
+  return std::make_shared<Subscription<MessageT>>();
+}
+
+template<typename MessageT> class Subscription { };
 
 template<typename MessageT>
 class Publisher {
