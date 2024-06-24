@@ -11,6 +11,7 @@
 #include <linux/hashtable.h> // hash table utilities
 #include <linux/hash.h> // hash_64
 #include <linux/rbtree.h>
+#include <linux/kprobes.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -767,6 +768,20 @@ static struct class *agnocast_class;
 static struct device *agnocast_device;
 
 // =========================================
+// Handler for process exit
+
+// TODO: Modify agnocast kmod's data structure to keep its validity
+static int pre_handler_do_exit(struct kprobe *p, struct pt_regs *regs) {
+    printk(KERN_INFO "Process %d is exiting.\n", current->pid);
+    return 0;
+}
+
+static struct kprobe kp = {
+    .symbol_name    = "do_exit",
+    .pre_handler    = pre_handler_do_exit,
+};
+
+// =========================================
 
 static int agnocast_init(void) {
 	printk(KERN_INFO "Hello, World!\n");
@@ -783,6 +798,12 @@ static int agnocast_init(void) {
 		// Decrement reference count
 		kobject_put(status_kobj);
 	}
+
+    if (register_kprobe(&kp) < 0) {
+        printk(KERN_INFO "register_kprobe failed, returned %d\n", ret);
+        return ret;
+    }
+    printk(KERN_INFO "Planted kprobe at %p\n", kp.addr);
 
 	major = register_chrdev(0, "agnocast" /*device driver name*/, &fops);
 	agnocast_class = class_create("agnocast_class");
@@ -829,6 +850,8 @@ static void agnocast_exit(void) {
     device_destroy(agnocast_class, MKDEV(major, 0));
     class_destroy(agnocast_class);
 	unregister_chrdev(major, "agnocast");
+
+	unregister_kprobe(&kp);
 }
 
 module_init(agnocast_init)
