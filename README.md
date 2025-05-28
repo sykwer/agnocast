@@ -1,2 +1,2 @@
 # ROS 2 Agnocast
-The README will be published after the corresponding paper is accepted.
+A production version of Agnocast is developed: https://github.com/tier4/agnocast.
