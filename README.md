@@ -1,18 +1,18 @@
 # ROS 2 Agnocast
-This repository contains a prototype implementation corresponding to the following paper.  
-The paper has been accepted to [IEEE ISORC 2025](https://isorc.github.io/2025/), but only the preprint version ([pdf](https://www.arxiv.org/pdf/2506.16882)) is available at this stage.
-- T. Ishikawa-Aso and S. Kato, “ROS 2 Agnocast: Supporting Unsized Message Types for True Zero-Copy Publish/Subscribe IPC,” arXiv preprint arXiv:2506.16882, 2025.
-
+This repo contains a prototype corresponding to the following paper. The paper has been accepted to [IEEE ISORC 2025](https://ieeexplore.ieee.org/document/11173025) ([pdf](https://www.arxiv.org/pdf/2506.16882)).
+- T. Ishikawa–Aso and S. Kato, “ROS 2 Agnocast: Supporting Unsized Message Types for True Zero-Copy Publish/Subscribe IPC,” in *Proc. 28th Int. Symp. Real-Time Distributed Computing (ISORC)*, 2025, pp. 1–10.
 
 <details>
 <summary>BibTeX</summary>
 
 ```bibtex
-@article{ishikawa2025agnocast,
+@inproceedings{ishikawa2025ros,
   title={ROS 2 Agnocast: Supporting Unsized Message Types for True Zero-Copy Publish/Subscribe IPC},
-  author={Ishikawa-Aso, Takahiro and Kato, Shinpei},
-  journal={arXiv preprint arXiv:2506.16882},
-  year={2025}
+  author={Ishikawa--Aso, Takahiro and Kato, Shinpei},
+  booktitle={2025 28th International Symposium on Real-Time Distributed Computing (ISORC)},
+  pages={01--10},
+  year={2025},
+  organization={IEEE}
 }
 ```
 </details>
