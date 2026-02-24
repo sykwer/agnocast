@@ -17,6 +17,6 @@ This repo contains a prototype corresponding to the following paper. The paper h
 ```
 </details>
 
-Based on this prorotype, a production version of `Agnocast` is developed: **https://github.com/tier4/agnocast**
+Based on this prorotype, a production version of `Agnocast` is developed: **https://github.com/autowarefoundation/agnocast**
 
 **Use the production version!**
